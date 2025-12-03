@@ -108,7 +108,6 @@ class BERTProcessor:
         if len(cluster_data) == 0:
             return {'size': 0, 'top_themes': []}
             
-        # Сбор топ слов
         all_words = []
         for text in cluster_data['processed_text']:
             all_words.extend(text.split())
@@ -121,7 +120,6 @@ class BERTProcessor:
         }
 
     def predict_cluster_for_text(self, text):
-        """Предсказание для пользователя"""
         processed_text = self.preprocess_text(text)
         if not processed_text:
             return {'cluster': -1, 'confidence': 0.0, 'error': 'Пустой текст'}
@@ -146,21 +144,32 @@ class BERTProcessor:
         if not processed: return pd.DataFrame()
         
         vec = self.model.encode([processed])
-        sims = cosine_similarity(vec, self.embeddings)[0]
+        
+        predicted_cluster = self.kmeans.predict(vec)[0]
+        
+        cluster_mask = self.df['cluster'] == predicted_cluster
+        
+        if not cluster_mask.any():
+            target_embeddings = self.embeddings
+            target_df = self.df
+        else:
+            target_embeddings = self.embeddings[cluster_mask]
+            target_df = self.df[cluster_mask]
+        
+        sims = cosine_similarity(vec, target_embeddings)[0]
         indices = np.argsort(sims)[::-1][:top_k]
         
         results = []
         for idx in indices:
             results.append({
-                'index': self.df.index[idx], 
+                'index': target_df.index[idx], 
                 'similarity': sims[idx],
-                'description': self.df.iloc[idx]['Описание'],
-                'cluster': self.df.iloc[idx]['cluster']
+                'description': target_df.iloc[idx]['Описание'],
+                'cluster': target_df.iloc[idx]['cluster']
             })
         return pd.DataFrame(results)
 
     def get_dataset_stats(self):
-        """Статистика для боковой панели приложения"""
         if self.df is None: return None
         
         stats = {
@@ -191,13 +200,10 @@ class BERTProcessor:
 bert_processor = BERTProcessor()
 
 def initialize_processor():
-    """Инициализирует процессор и возвращает данные"""
     return bert_processor.load_and_process_data()
 
 def predict_user_cluster(user_text):
-    """Определяет кластер для текста пользователя"""
     return bert_processor.predict_cluster_for_text(user_text)
 
 def find_similar_profiles(user_text, top_k=20):
-    """Поиск похожих профилей через обертку"""
     return bert_processor.find_similar_profiles(user_text, top_k)
